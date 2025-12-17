@@ -2,20 +2,40 @@ import express from 'express'
 import { fileURLToPath } from 'url';
 import path from 'path'
 const app = express()
-import bodyParser from 'body-parser';
 const PORT = 5000;
 import { WebSocketServer } from 'ws';
 import {signup} from './helpers/signup.js';
 import {login} from './helpers/login.js';
 import jwt from 'jsonwebtoken';
 import cookieParser from 'cookie-parser';
+import cookie from "cookie";
 import dotenv from 'dotenv';
 dotenv.config();
+
+//rooms
+const rooms = [
+    {
+        id: "1",
+        w: {
+            username:'pavan',
+            socket: null
+        },
+        b: {
+            username:null,
+            socket: null
+        },
+        isActive: true,
+        isRunning: false,
+        state: {
+
+        }
+    }
+]
 
 // Middleware to parse form data
 app.use(cookieParser());
 app.use(express.json());
-app.use(bodyParser.urlencoded({ extended: true }));
+app.use(express.urlencoded({extended: true}));
 
 // Define __dirname for ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -58,7 +78,10 @@ app.get('/home', verifyToken, (req, res)=>{
     // Fetch user details from your database or service
     // For example, you can use a function like getUserDetails(userId)
     // Here, we will just send back the user ID and username as an example
-    res.json({ id: userId, username: req.user.username });
+    // res.json({ id: userId, username: req.user.username });
+    setTimeout(()=>{
+        res.json({ id: userId, username: req.user.username });
+    },2000)
 })
 
 //Get requests
@@ -69,6 +92,25 @@ app.get('/login', (req, res)=>{
 
 app.get('/signup', (req, res)=>{
     res.sendFile(path.join(__dirname, 'public', 'signup', 'signup.html'))
+})
+
+app.get('/room/:roomId', verifyToken,(req, res)=>{
+    const roomId = req.params.roomId;
+    const room = rooms.find(r => r.id === roomId);
+    if(room){
+        if(room.w.username === req.user.username || room.b.username === req.user.username){
+            return res.sendFile(path.join(__dirname, 'public', 'index', 'index.html'))
+        }
+        if(!room.w.username){
+            room.w.username = req.user.username
+            return res.sendFile(path.join(__dirname, 'public', 'index', 'index.html'))
+        }
+        if(!room.b.username){
+            room.b.username = req.user.username
+            return res.sendFile(path.join(__dirname, 'public', 'index', 'index.html'))
+        }
+    }else return res.json({ rejection : "Inavlid room reference" });
+    return res.json({ rejection : "Room space is already occupied" });
 })
 
 // Post requests
@@ -107,8 +149,27 @@ app.post('/signup', (req, res)=>{
     .catch(err => res.status(400).send(err.message));
 })
 
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, request) => {
+    
+    const cookieHeader = request.headers.cookie;
+
     console.log('Client connected, uid created');
+
+    if (cookieHeader) {
+        // Parse the cookie string into an object
+        const token = cookie.parse(cookieHeader).token;
+        const verified = jwt.verify(token, process.env.JWT_SECRET_KEY);
+
+        // register the user
+        ws.user = verified
+        const room = assignSocket(verified.username, ws);
+        
+        if(room) console.log("Websocket registered", room);
+
+        // You can also use the cookies for authentication/authorization logic here
+    } else {
+        console.log('No cookie header found');
+    }
 
     // Handle incoming messages from the client
     ws.on('message', (message) => {
@@ -136,3 +197,27 @@ function verifyToken(req, res, next) {
         res.status(403).send('Invalid token');
     }
 }
+
+function findRoomByUsername(username) {
+    return rooms.find(room =>
+        room.w.username === username || room.b.username === username
+    );
+}
+
+function assignSocket(username, ws) {
+    const room = findRoomByUsername(username);
+
+    if (!room) {
+        console.log("Room not found for user:", username);
+        return null;
+    }
+
+    if (room.w.username === username) {
+        room.w.socket = ws;
+    } else if (room.b.username === username) {
+        room.b.socket = ws;
+    }
+
+    return room;
+}
+

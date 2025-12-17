@@ -605,17 +605,40 @@ $(document).ready(function () {
         return null; // Should never happen in a valid game
     }
 
-    function setGameOverStatus(status, finishData){
-        const $container = $('.game-over-container-main')
-        if(status) {
-            $('.winner').html(`${finishData.winner} Beat`);
-            $('.opponent').html(finishData.looser);
-            $('.finish-type').html(`by ${finishData.finish_type}`);
-            $('.players').html(`${finishData.players.w} vs ${finishData.players.b}`);
-            $container.show();
+    function setGameOverStatus(status, finishData) {
+        const $container = $('.game-over-container-main');
+
+        // Hide everything if status == false
+        if (!status) {
+            $container.hide();
+            return;
         }
-        else $container.hide();
+
+        const { winner, looser, finish_type } = finishData;
+
+        // -------------------------------------------
+        // CASE 1: Someone won (checkmate / resignation)
+        // -------------------------------------------
+        if (winner && looser) {
+            $('.winner').html(`${winner} Beat`);
+            $('.opponent').html(looser);
+            $('.finish-type').html(`by ${finish_type}`);
+            $('.players').html(`${player.w} vs ${player.b}`);
+            $container.show();
+            return;
+        }
+
+        // -------------------------------------------
+        // CASE 2: Draw cases (stalemate, repetition, etc.)
+        // -------------------------------------------
+        // winner == null, looser == null
+        $('.winner').html(`Draw`);
+        $('.opponent').html('');
+        $('.finish-type').html(`by ${finish_type}`);
+        $('.players').html(`${player.w} vs ${player.b}`);
+        $container.show();
     }
+
 
     function updateSoundMovement(movement){
         if(movement.isGameOver){
@@ -810,9 +833,43 @@ $(document).ready(function () {
         updateSoundMovement(currentState);
         if(movement['captured']) updateCapturedPiece(movement);
         state.turn = game.turn();
-        if(game.isGameOver()){
-            setGameOverStatus(true, {winner: 'Pavan',looser: 'Kiran' ,finish_type: 'checkmate', players: {w: 'Pavan', b: 'Kiran'}});
+        if (game.isGameOver()) {
+            let finish_type = 'unknown';
+            let winner = null;
+            let looser = null;
+
+            if (game.isCheckmate()) {
+                finish_type = 'checkmate';
+                // The side to move is the mated side; winner is the opposite color
+                const matedColor = game.turn(); // 'w' or 'b'
+                const winnerColor = matedColor === 'w' ? 'b' : 'w';
+                winner = player[winnerColor];
+                looser = player[matedColor];
+            } else if (game.isStalemate()) {
+                finish_type = 'stalemate';
+                // no winner
+            } else if (game.isThreefoldRepetition()) {
+                finish_type = 'threefold_repetition';
+            }else if (game.isDraw()) {
+                if(game.isDrawByFiftyMoves()){
+                    finish_type = 'draw-by-fifty-moves';
+                }else if(game.isInsufficientMaterial()){
+                    finish_type = 'insufficient_material';
+                }else{
+                    finish_type = 'draw';
+                }
+            } else {
+                // Fallback — chess.js should have caught the reason but handle defensively
+                finish_type = 'game_over';
+            }
+
+            setGameOverStatus(true, {
+                winner,           // null for draws
+                looser,           // null for draws
+                finish_type         // keep player mapping for UI
+            });
             return;
         }
+
     }
 });
